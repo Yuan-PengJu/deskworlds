@@ -4,6 +4,8 @@
 
 Deskworlds puts a small living 3D world on your Mac desktop. The creatures in each world react to your cursor, and you can feed them from the menu bar. Everything runs locally with Three.js and WebGL2, with no account, analytics or internet connection.
 
+> **About this repository.** This is [Deskworlds](https://github.com/chaseleantj/deskworlds) by Chase Lean, published under the MIT License, with a Windows version added in [`windows/`](windows/). The worlds, the Mac app and the browser version are the original author's work, unchanged. 本仓库基于 Chase Lean 的开源项目 [Deskworlds](https://github.com/chaseleantj/deskworlds)（MIT 许可），在 `windows/` 中增加了 Windows 版；场景、Mac 版和浏览器版均为原作者的作品，未做修改。
+
 ## Worlds
 
 | | |
@@ -23,6 +25,12 @@ sh wallpaper/install.sh
 This builds the app, installs it at `~/Applications/Deskworlds.app`, and adds a login item. The first frame takes about 20 seconds to appear. Your desktop picture is not changed; the world draws on top of it.
 
 To update, pull the latest source and run the installer again. To remove it, run `sh wallpaper/uninstall.sh`.
+
+## Install on Windows
+
+You need Windows 10 or 11. Download `Deskworlds-Setup-<version>.exe` from [Releases](../../releases) and run it. It installs for your account only, needs no administrator rights or internet connection, and adds a Start menu entry, an optional desktop shortcut, and start at sign-in. Each release lists the installer's SHA-256 checksum in `SHA256SUMS.txt`.
+
+Windows may say it protected your PC, because the installer is not code-signed; choose More info, then Run anyway. Remove it from Settings › Apps. Shortcuts, building the installer yourself, and troubleshooting are covered in [windows/README.md](windows/README.md) (in Chinese).
 
 ## Usage
 
@@ -54,4 +62,4 @@ npm test
 
 ## License
 
-[MIT](LICENSE). Three.js is bundled under its [MIT license](vendor/THREE-LICENSE.txt).
+[MIT](LICENSE). Three.js is bundled under its [MIT license](vendor/THREE-LICENSE.txt). The Windows version in `windows/` is released under the same MIT license; its installer also carries the licenses of Electron, Chromium and koffi.

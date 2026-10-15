@@ -1,0 +1,6 @@
+# Windows scripts keep Windows line endings in every checkout, whatever core.autocrlf says.
+*.cmd text eol=crlf
+*.ps1 text eol=crlf
+*.nsi text eol=lf
+*.ico binary
+*.png binary

@@ -1,0 +1,23 @@
+{
+  "name": "deskworlds-windows",
+  "productName": "Deskworlds",
+  "version": "1.1.0-windows.4",
+  "description": "Deskworlds as a living Windows desktop wallpaper, behind the desktop icons.",
+  "license": "MIT",
+  "private": true,
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "preview": "electron . --window",
+    "check": "node --check main.js && node --check desktop.js && node --check preload.js && node --check build/build-installer.mjs",
+    "dist": "node build/build-installer.mjs"
+  },
+  "dependencies": {
+    "koffi": "3.3.2"
+  },
+  "devDependencies": {
+    "@electron/get": "5.1.0",
+    "electron": "44.5.1",
+    "resedit": "3.1.0"
+  }
+}
