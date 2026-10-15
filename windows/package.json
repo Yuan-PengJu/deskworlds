@@ -1,7 +1,7 @@
 {
   "name": "deskworlds-windows",
   "productName": "Deskworlds",
-  "version": "1.1.0-windows.4",
+  "version": "1.1.0-windows.10",
   "description": "Deskworlds as a living Windows desktop wallpaper, behind the desktop icons.",
   "license": "MIT",
   "private": true,

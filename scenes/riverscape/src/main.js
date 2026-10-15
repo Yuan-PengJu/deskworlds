@@ -5,6 +5,8 @@ import * as THREE from "three";
 import { createEnvironment, createParticles } from "./environment.js";
 import { createPlants } from "./plants.js";
 import { createFishSchool } from "./fish.js";
+import { STANDARD_LENGTH } from "./fish-anatomy.js";
+import { createSkins } from "../../shared/skins.js";
 import { createFood } from "./food.js";
 import { randomGenerator } from "./math.js";
 import { waterTime } from "./water.js";
@@ -165,6 +167,13 @@ async function start() {
     food,
   });
   const particles = createParticles(scene, { thickets: plants.thickets });
+  // Pictures of your own in the fish's place, when the host passes some (shared/skins.js).
+  const skins = createSkins(scene, { count: fish.fish.length, view: "side", light: 0.92 });
+  if (skins) for (const mesh of fish.meshes) mesh.visible = false;
+  const readFish = (i) => {
+    const f = fish.fish[i];
+    return { position: f.position, direction: f.heading, length: STANDARD_LENGTH * f.scale * 1.25 };
+  };
 
   const { target, post, postScene, postCamera } = createComposite(camera, settings);
 
@@ -310,6 +319,7 @@ async function start() {
       food.update(step, time);
       fish.update(step, time, pointer);
     }
+    skins?.update(readFish, camera, time);
     if (pointer && now - lastPointerTime > 60)
       pointer.velocity.multiplyScalar(Math.exp(-dt * 12));
     const refreshShadow = forceShadows || time - lastShadowTime + 1e-7 >= 1 / settings.shadowHz;

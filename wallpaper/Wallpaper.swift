@@ -10,6 +10,7 @@
 // global cursor position is read on a timer and handed to the page as a pointer move,
 // so clicking and dragging on the desktop still belongs to the Finder.
 
+import ApplicationServices
 import Cocoa
 import WebKit
 import IOKit.ps
@@ -21,19 +22,10 @@ let sceneHost = "local"
 enum World: String, CaseIterable {
   case riverscape, reefscape, bettascape, plasmascape, koiscape, bonfirescape
 
-  var title: String {
-    switch self {
-    case .riverscape: "Riverbed"
-    case .reefscape: "Coral reef"
-    case .bettascape: "Betta"
-    case .plasmascape: "Plasma globe"
-    case .koiscape: "Koi pond"
-    case .bonfirescape: "Bonfire"
-    }
-  }
+  var title: String { Words.current.worlds[self] ?? rawValue }
   /// Only worlds with something to eat have anything to feed; the bonfire is stirred instead.
   var canFeed: Bool { self != .plasmascape }
-  var feedTitle: String { self == .bonfirescape ? "Stir the Fire" : "Feed" }
+  var feedTitle: String { self == .bonfirescape ? Words.current.stir : Words.current.feed }
   var page: String { "/scenes/\(rawValue)/wallpaper.html" }
   /// What shows before the page has drawn anything, matched to each scene's own dark.
   var background: NSColor {
@@ -53,6 +45,110 @@ enum World: String, CaseIterable {
 }
 
 /// Serves the bundled copy of the scenes to the web view.
+/// The languages the menu speaks. `system` follows macOS's own order of preference.
+enum Language: String, CaseIterable {
+  case system
+  case english = "en"
+  case simplifiedChinese = "zh-Hans"
+  case traditionalChinese = "zh-Hant"
+
+  /// Each language named in itself; following the system in the language now in use.
+  var name: String {
+    switch self {
+    case .system: Words.current.sameAsSystem
+    case .english: "English"
+    case .simplifiedChinese: "简体中文"
+    case .traditionalChinese: "繁體中文"
+    }
+  }
+
+  /// Nothing is stored until a language is chosen, so a machine whose language changes
+  /// later is followed rather than overruled.
+  static var chosen: Language {
+    get { UserDefaults.standard.string(forKey: "language").flatMap(Language.init) ?? .system }
+    set {
+      if newValue == .system {
+        UserDefaults.standard.removeObject(forKey: "language")
+      } else {
+        UserDefaults.standard.set(newValue.rawValue, forKey: "language")
+      }
+    }
+  }
+
+  /// The language in force: the one chosen, or the first of macOS's preferences that the
+  /// menu speaks, with Traditional Chinese for Taiwan, Hong Kong and Macao.
+  static var current: Language {
+    if chosen != .system { return chosen }
+    for tag in Locale.preferredLanguages.map({ $0.lowercased() }) {
+      if ["zh-hant", "zh-tw", "zh-hk", "zh-mo"].contains(where: { tag.hasPrefix($0) }) {
+        return .traditionalChinese
+      }
+      if tag.hasPrefix("zh") { return .simplifiedChinese }
+      if tag.hasPrefix("en") { return .english }
+    }
+    return .english
+  }
+}
+
+/// Everything the app says, in each language it speaks. The log stays in English.
+struct Words {
+  let world, language, sameAsSystem, feed, stir, pause, resume, quit: String
+  let lowPower, pausedForReduceMotion, paused, screenOff, resting: String
+  /// With %ld for the frame rate.
+  let running: String
+  let doubleClickFeed, doubleClickStir, loading: String
+  let worlds: [World: String]
+
+  static var current: Words {
+    switch Language.current {
+    case .simplifiedChinese: simplifiedChinese
+    case .traditionalChinese: traditionalChinese
+    case .english, .system: english
+    }
+  }
+
+  static let english = Words(
+    world: "World", language: "Language", sameAsSystem: "Same as macOS", feed: "Feed",
+    stir: "Stir the Fire", pause: "Pause", resume: "Resume", quit: "Quit",
+    lowPower: "Still, for Low Power Mode", pausedForReduceMotion: "Paused, for Reduce Motion",
+    paused: "Paused", screenOff: "Still, the screen is off",
+    resting: "Resting behind your windows", running: "Running at %ld frames a second",
+    doubleClickFeed: "Double-Click Desktop to Feed",
+    doubleClickStir: "Double-Click Desktop to Stir the Fire", loading: "Loading world…",
+    worlds: [
+      .riverscape: "Riverbed", .reefscape: "Coral reef", .bettascape: "Betta",
+      .plasmascape: "Plasma globe", .koiscape: "Koi pond", .bonfirescape: "Bonfire",
+    ])
+
+  static let simplifiedChinese = Words(
+    world: "世界", language: "语言", sameAsSystem: "跟随系统", feed: "喂食",
+    stir: "拨一拨篝火", pause: "暂停", resume: "继续", quit: "退出",
+    lowPower: "低电量模式已开启，画面保持静止",
+    pausedForReduceMotion: "已暂停（系统开启了“减弱动态效果”）",
+    paused: "已暂停", screenOff: "屏幕已关闭，画面保持静止",
+    resting: "被窗口挡住了，正在休息", running: "正在以每秒 %ld 帧运行",
+    doubleClickFeed: "双击桌面空白处喂食", doubleClickStir: "双击桌面空白处拨火",
+    loading: "正在加载世界…",
+    worlds: [
+      .riverscape: "河床", .reefscape: "珊瑚礁", .bettascape: "斗鱼",
+      .plasmascape: "等离子球", .koiscape: "锦鲤池", .bonfirescape: "篝火",
+    ])
+
+  static let traditionalChinese = Words(
+    world: "世界", language: "語言", sameAsSystem: "跟隨系統", feed: "餵食",
+    stir: "撥一撥營火", pause: "暫停", resume: "繼續", quit: "結束",
+    lowPower: "低耗電模式已開啟，畫面保持靜止",
+    pausedForReduceMotion: "已暫停（系統開啟了「減少動態效果」）",
+    paused: "已暫停", screenOff: "螢幕已關閉，畫面保持靜止",
+    resting: "被視窗擋住了，正在休息", running: "正在以每秒 %ld 幀執行",
+    doubleClickFeed: "按兩下桌面空白處餵食", doubleClickStir: "按兩下桌面空白處撥火",
+    loading: "正在載入世界…",
+    worlds: [
+      .riverscape: "河床", .reefscape: "珊瑚礁", .bettascape: "鬥魚",
+      .plasmascape: "電漿球", .koiscape: "錦鯉池", .bonfirescape: "營火",
+    ])
+}
+
 final class SceneHandler: NSObject, WKURLSchemeHandler {
   private let root: URL
   private let page: String
@@ -160,6 +256,11 @@ final class Wallpaper: NSObject, WKNavigationDelegate, WKScriptMessageHandler {
           """,
         injectionTime: .atDocumentStart, forMainFrameOnly: true))
 
+    // The page's "Loading world…", which shows for a while, in the menu's language.
+    settings.userContentController.addUserScript(
+      WKUserScript(
+        source: Wallpaper.loadingScript(), injectionTime: .atDocumentEnd, forMainFrameOnly: true))
+
     view = WKWebView(frame: screen.frame, configuration: settings)
     settings.userContentController.add(Reporter.shared, name: "report")
     // WebKit stops a page whose window it thinks is covered, and AppKit never reports a
@@ -196,6 +297,20 @@ final class Wallpaper: NSObject, WKNavigationDelegate, WKScriptMessageHandler {
     // Native: full display resolution plugged in, the Balanced profile on battery.
     let page = "\(sceneScheme)://\(sceneHost)\(world.page)?quality=native"
     view.load(URLRequest(url: URL(string: page)!))
+  }
+
+  /// The scenes are the original project's, unchanged, so the host swaps the text in
+  /// rather than editing them. JSON spells the text as a JavaScript string.
+  static func loadingScript() -> String {
+    let text =
+      (try? JSONEncoder().encode(Words.current.loading)).flatMap { String(data: $0, encoding: .utf8) }
+      ?? "''"
+    return "{ const label = document.querySelector('#loading p'); if (label) label.textContent = \(text); }"
+  }
+
+  /// After a change of language, for a page that may still be loading.
+  func localize() {
+    view.evaluateJavaScript(Wallpaper.loadingScript())
   }
 
   func close() {
@@ -314,6 +429,66 @@ final class Wallpaper: NSObject, WKNavigationDelegate, WKScriptMessageHandler {
   }
 }
 
+/// Whether a double-click landed on empty desktop: no window is there, the Finder's
+/// desktop is, and the accessibility interface finds the desktop itself under the cursor
+/// rather than an item on it. Every doubt answers no, because a missed feeding costs
+/// nothing while food dropped on opening a file would look like a fault. It runs off the
+/// main thread: the Finder is busy with the same click, and the accessibility interface
+/// waits on it.
+enum DesktopClick {
+  /// `point` counts from the top-left corner of the main screen, as the window server
+  /// does. The answer comes with a few words on what was found, for the log.
+  static func emptyDesktop(at point: CGPoint, finder: pid_t) -> (Bool, String) {
+    guard
+      let list = CGWindowListCopyWindowInfo([.optionOnScreenOnly], kCGNullWindowID)
+        as? [[String: Any]]
+    else { return (false, "no window list") }
+    let iconLevel = Int(CGWindowLevelForKey(.desktopIconWindow))
+    var desktop = false
+    for info in list {
+      guard let bounds = info[kCGWindowBounds as String] as? [String: CGFloat],
+        let frame = CGRect(dictionaryRepresentation: bounds as CFDictionary),
+        frame.contains(point)
+      else { continue }
+      let layer = info[kCGWindowLayer as String] as? Int ?? 0
+      // An ordinary window there means the double-click was meant for it.
+      if layer == 0, info[kCGWindowAlpha as String] as? Double ?? 0 > 0 { return (false, "a window") }
+      if info[kCGWindowOwnerPID as String] as? Int32 == finder, layer == iconLevel { desktop = true }
+    }
+    // With the Finder's desktop hidden there is nothing to ask about, and the question
+    // could reach this app's own windows instead.
+    guard desktop else { return (false, "no Finder desktop there") }
+
+    let system = AXUIElementCreateSystemWide()
+    AXUIElementSetMessagingTimeout(system, 0.5)
+    var hit: AXUIElement?
+    guard AXUIElementCopyElementAtPosition(system, Float(point.x), Float(point.y), &hit) == .success,
+      let element = hit
+    else { return (false, "no accessibility answer") }
+    var pid: pid_t = 0
+    guard AXUIElementGetPid(element, &pid) == .success, pid == finder else {
+      return (false, "something other than the Finder")
+    }
+    // The desktop is a plain container. An item on it is an image or text, or carries
+    // the file it stands for, or at least a name.
+    let role = value(element, kAXRoleAttribute) as? String ?? "an unknown element"
+    guard ["AXScrollArea", "AXGroup", "AXList", "AXLayoutArea"].contains(role) else {
+      return (false, role)
+    }
+    let title = value(element, kAXTitleAttribute) as? String ?? ""
+    guard title.isEmpty, value(element, kAXURLAttribute) == nil,
+      value(element, kAXFilenameAttribute) == nil
+    else { return (false, "\(role) \"\(title)\"") }
+    return (true, role)
+  }
+
+  private static func value(_ element: AXUIElement, _ attribute: String) -> CFTypeRef? {
+    var result: CFTypeRef?
+    return AXUIElementCopyAttributeValue(element, attribute as CFString, &result) == .success
+      ? result : nil
+  }
+}
+
 final class Controller: NSObject, NSApplicationDelegate, NSMenuDelegate {
   static var shared: Controller?
   private var screens: [Wallpaper] = []
@@ -326,6 +501,12 @@ final class Controller: NSObject, NSApplicationDelegate, NSMenuDelegate {
   private let state = NSMenuItem()
   private let pause = NSMenuItem()
   private let feed = NSMenuItem()
+  private let doubleClick = NSMenuItem()
+  private let worldMenu = NSMenuItem()
+  private let languageMenu = NSMenuItem()
+  private var languageItems: [NSMenuItem] = []
+  private let leave = NSMenuItem()
+  private var clickMonitor: Any?
   private var worldItems: [NSMenuItem] = []
   private var world = World.selected
   private var applied = 0
@@ -346,11 +527,19 @@ final class Controller: NSObject, NSApplicationDelegate, NSMenuDelegate {
     NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
   }
   private var reduceMotion: Bool { Controller.reduceMotion }
+  /// Wanted unless turned off in the menu. It only acts with Accessibility access, which
+  /// the menu item asks for and nothing else does.
+  private var doubleClickWanted: Bool {
+    get { UserDefaults.standard.object(forKey: "doubleClickFeed") as? Bool ?? true }
+    set { UserDefaults.standard.set(newValue, forKey: "doubleClickFeed") }
+  }
+  private var accessibilityGranted: Bool { AXIsProcessTrusted() }
 
   func applicationDidFinishLaunching(_ note: Notification) {
     Controller.shared = self
     build()
     addMenu()
+    watchDoubleClicks()
 
     let center = NotificationCenter.default
     center.addObserver(
@@ -562,11 +751,10 @@ final class Controller: NSObject, NSApplicationDelegate, NSMenuDelegate {
       worlds.addItem(item)
       worldItems.append(item)
     }
-    let worldMenu = NSMenuItem(title: "World", action: nil, keyEquivalent: "")
     worldMenu.submenu = worlds
     menu.addItem(worldMenu)
     menu.addItem(.separator())
-    feed.title = "Feed"
+    feed.title = world.feedTitle
     feed.target = self
     feed.action = #selector(feedEveryScreen)
     menu.addItem(feed)
@@ -574,7 +762,24 @@ final class Controller: NSObject, NSApplicationDelegate, NSMenuDelegate {
     pause.action = #selector(togglePause)
     menu.addItem(pause)
     menu.addItem(.separator())
-    let leave = NSMenuItem(title: "Quit", action: #selector(quit), keyEquivalent: "q")
+    doubleClick.target = self
+    doubleClick.action = #selector(toggleDoubleClick)
+    menu.addItem(doubleClick)
+    menu.addItem(.separator())
+    let languages = NSMenu(title: "Language")
+    languages.autoenablesItems = false
+    for choice in Language.allCases {
+      let item = NSMenuItem(title: choice.name, action: #selector(selectLanguage), keyEquivalent: "")
+      item.target = self
+      item.representedObject = choice.rawValue
+      languages.addItem(item)
+      languageItems.append(item)
+    }
+    languageMenu.submenu = languages
+    menu.addItem(languageMenu)
+    menu.addItem(.separator())
+    leave.action = #selector(quit)
+    leave.keyEquivalent = "q"
     leave.target = self
     menu.addItem(leave)
     item.menu = menu
@@ -587,20 +792,32 @@ final class Controller: NSObject, NSApplicationDelegate, NSMenuDelegate {
   /// Says what the wallpaper is doing, and why, whenever the menu is opened. Most of the
   /// reasons it holds still are deliberate, and unexplained stillness reads as a fault.
   func menuNeedsUpdate(_ menu: NSMenu) {
+    let words = Words.current
     for item in worldItems {
-      item.state = item.representedObject as? String == world.rawValue ? .on : .off
+      let choice = (item.representedObject as? String).flatMap(World.init)
+      item.title = choice?.title ?? item.title
+      item.state = choice == world ? .on : .off
     }
+    worldMenu.title = words.world
+    languageMenu.title = words.language
+    let chosen = Language.chosen
+    for item in languageItems {
+      let choice = (item.representedObject as? String).flatMap(Language.init)
+      item.title = choice?.name ?? item.title
+      item.state = choice == chosen ? .on : .off
+    }
+    leave.title = words.quit
     state.title =
       lowPower
-      ? "Still, for Low Power Mode"
+      ? words.lowPower
       : stopped
-        ? reduceMotion ? "Paused, for Reduce Motion" : "Paused"
+        ? reduceMotion ? words.pausedForReduceMotion : words.paused
         : !awake
-          ? "Still, the screen is off"
+          ? words.screenOff
           : applied == 0
-            ? "Resting behind your windows"
-            : "Running at \(applied) frames a second"
-    pause.title = stopped ? "Resume" : "Pause"
+            ? words.resting
+            : String(format: words.running, applied)
+    pause.title = stopped ? words.resume : words.pause
     // In Low Power Mode nothing is going to draw, so the item would be a false promise.
     // Reduce Motion is not the same case: the machine can perfectly well draw, it has
     // merely been asked not to, and Resume is how somebody says they want this one anyway.
@@ -609,6 +826,11 @@ final class Controller: NSObject, NSApplicationDelegate, NSMenuDelegate {
     // again and then all arrive at once, so Feed says so rather than promising a feeding.
     feed.isEnabled = applied > 0 && world.canFeed
     feed.title = world.feedTitle
+    // The ellipsis says that choosing it asks for something first: Accessibility access.
+    let granted = accessibilityGranted
+    doubleClick.title =
+      (world == .bonfirescape ? words.doubleClickStir : words.doubleClickFeed) + (granted ? "" : "…")
+    doubleClick.state = granted && doubleClickWanted ? .on : .off
   }
 
   /// Every screen, because each one runs its own world rather than one
@@ -630,6 +852,15 @@ final class Controller: NSObject, NSApplicationDelegate, NSMenuDelegate {
     build()
   }
 
+  /// The menu's titles follow at its next opening; the pages and the tooltip at once.
+  @objc private func selectLanguage(_ sender: NSMenuItem) {
+    guard let name = sender.representedObject as? String, let chosen = Language(rawValue: name)
+    else { return }
+    Language.chosen = chosen
+    status?.button?.toolTip = "Deskworlds · \(world.title)"
+    for screen in screens { screen.localize() }
+  }
+
   @objc private func togglePause() {
     stopped.toggle()
     UserDefaults.standard.set(stopped, forKey: "paused")
@@ -638,6 +869,60 @@ final class Controller: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
   @objc private func quit() {
     NSApp.terminate(nil)
+  }
+
+  // MARK: - Double-clicking the desktop
+
+  /// Without Accessibility access the item asks for it. macOS shows its own prompt, which
+  /// leads to System Settings: access can only be requested from here, never granted.
+  @objc private func toggleDoubleClick() {
+    guard accessibilityGranted else {
+      doubleClickWanted = true
+      // kAXTrustedCheckOptionPrompt, spelled out: its Swift type differs between SDKs.
+      let prompt = ["AXTrustedCheckOptionPrompt": true] as CFDictionary
+      _ = AXIsProcessTrustedWithOptions(prompt)
+      return
+    }
+    doubleClickWanted.toggle()
+  }
+
+  /// Double-clicking empty desktop does nothing in the Finder, so here it means "feed".
+  /// The click itself still goes to the Finder: a global monitor only watches, and
+  /// watching the mouse buttons needs no permission.
+  private func watchDoubleClicks() {
+    clickMonitor = NSEvent.addGlobalMonitorForEvents(matching: .leftMouseDown) { [weak self] event in
+      if event.clickCount == 2 { self?.doubleClicked() }
+    }
+  }
+
+  /// Feeds the world on the screen that was double-clicked, once DesktopClick has said the
+  /// double-click landed on empty desktop.
+  private func doubleClicked() {
+    let point = NSEvent.mouseLocation
+    guard doubleClickWanted, accessibilityGranted, world.canFeed, applied > 0,
+      let index = NSScreen.screens.firstIndex(where: { $0.frame.contains(point) }),
+      index < screens.count,
+      let finder = NSRunningApplication.runningApplications(
+        withBundleIdentifier: "com.apple.finder"
+      ).first?.processIdentifier
+    else { return }
+    // AppKit counts from the bottom-left corner of the main screen, the window server and
+    // the accessibility interface from its top-left.
+    let top = CGPoint(x: point.x, y: (NSScreen.screens.first?.frame.maxY ?? 0) - point.y)
+    let feeding = world
+    DispatchQueue.global(qos: .userInitiated).async {
+      let (empty, found) = DesktopClick.emptyDesktop(at: top, finder: finder)
+      DispatchQueue.main.async {
+        Controller.shared?.doubleClickChecked(empty, found: found, screen: index, world: feeding)
+      }
+    }
+  }
+
+  func doubleClickChecked(_ empty: Bool, found: String, screen index: Int, world feeding: World) {
+    NSLog("deskworlds: double-click on %@%@", found, empty ? ", fed" : "")
+    // The world or the screens may have changed while the Finder was being asked.
+    guard empty, feeding == world, index < screens.count else { return }
+    screens[index].feed()
   }
 
   /// The cursor belongs to the Finder, so its position is read rather than captured.

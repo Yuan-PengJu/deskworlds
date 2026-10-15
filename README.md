@@ -30,13 +30,17 @@ To update, pull the latest source and run the installer again. To remove it, run
 
 You need Windows 10 or 11. Download `Deskworlds-Setup-<version>.exe` from [Releases](../../releases) and run it. It installs for your account only, needs no administrator rights or internet connection, and adds a Start menu entry, an optional desktop shortcut, and start at sign-in. Each release lists the installer's SHA-256 checksum in `SHA256SUMS.txt`.
 
+In the Windows app, Settings… in the tray menu opens a settings window where you can adjust each world's brightness, contrast, saturation and hue and, for the Riverbed and Koi pond, how many creatures it has, replace the fish, the koi or the plasma globe's centre with pictures of your own that keep all of their behaviour, or show your own picture, video or web page instead of a world. The Mac app does not have these yet.
+
 Windows may say it protected your PC, because the installer is not code-signed; choose More info, then Run anyway. Remove it from Settings › Apps. Shortcuts, building the installer yourself, and troubleshooting are covered in [windows/README.md](windows/README.md) (in Chinese).
 
 ## Usage
 
-Click the Deskworlds icon in the menu bar to switch worlds, feed the creatures, stir the fire, or pause. Desktop icons and clicks work as usual.
+Click the Deskworlds icon in the menu bar to switch worlds, feed the creatures, stir the fire, or pause. Desktop icons and clicks work as usual. The menu speaks English, Simplified Chinese and Traditional Chinese: it follows macOS unless you choose one under Language. 菜单支持简体中文和繁體中文，默认跟随系统语言，也可以在菜单的"语言"里手动切换。
 
-The wallpaper lowers its frame rate on battery or when windows cover the desktop, and stops when the desktop is hidden, the screen is locked, or Low Power Mode is on. It reads your cursor position and window sizes for this, but does not record keystrokes or request any special permissions.
+You can also feed the world on a screen by double-clicking empty desktop there. Choose Double-Click Desktop to Feed… in the menu to turn this on. It needs Accessibility access, which is how it tells empty desktop from an icon so that opening a file never drops food, and macOS asks for it once. The app uses that access only to check what a double-click landed on, and notes each check in `/tmp/deskworlds.log`. Every reinstall builds a new copy of the app, which macOS treats as a different program: if double-clicking stops working after an update, remove Deskworlds from System Settings › Privacy & Security › Accessibility with the minus button, then choose the menu item again.
+
+The wallpaper lowers its frame rate on battery or when windows cover the desktop, and stops when the desktop is hidden, the screen is locked, or Low Power Mode is on. It reads your cursor position and window sizes for this, and does not record keystrokes. Apart from the optional double-click feeding, it requests no special permissions.
 
 ## Run in a browser
 

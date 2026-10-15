@@ -13,12 +13,14 @@
 // so clicking and dragging on the desktop still belongs to Explorer.
 
 const {
-  app, BaseWindow, BrowserWindow, Menu, Tray, globalShortcut, ipcMain, powerMonitor, protocol,
+  app, BaseWindow, BrowserWindow, Menu, Tray, dialog, globalShortcut, ipcMain, powerMonitor, protocol,
   screen, session, systemPreferences,
 } = require('electron');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
+const { Readable } = require('node:stream');
+const { pathToFileURL } = require('node:url');
 const desktop = require('./desktop');
 
 const SCHEME = 'deskworlds';
@@ -38,28 +40,74 @@ const ROOT = (() => {
 // The worlds, as on macOS. Scenes added by a fork appear too, named after their page.
 
 const KNOWN_WORLDS = [
-  { id: 'riverscape', en: 'Riverbed', zh: '河床', background: '#080e0c' },
-  { id: 'reefscape', en: 'Coral reef', zh: '珊瑚礁', background: '#0b1825' },
-  { id: 'bettascape', en: 'Betta', zh: '斗鱼', background: '#000000' },
+  // creatures: the scene reads ?creatures= for how many to have (see scenes/*/src).
+  { id: 'riverscape', names: { en: 'Riverbed', 'zh-CN': '河床', 'zh-TW': '河床' }, background: '#080e0c', creatures: true, skins: 'fish' },
+  { id: 'reefscape', names: { en: 'Coral reef', 'zh-CN': '珊瑚礁', 'zh-TW': '珊瑚礁' }, background: '#0b1825', skins: 'fish' },
+  { id: 'bettascape', names: { en: 'Betta', 'zh-CN': '斗鱼', 'zh-TW': '鬥魚' }, background: '#000000' },
   // Only worlds with something to eat have anything to feed; the bonfire is stirred instead.
-  { id: 'plasmascape', en: 'Plasma globe', zh: '等离子球', background: '#000000', feed: false },
-  { id: 'koiscape', en: 'Koi pond', zh: '锦鲤池', background: '#040605' },
-  { id: 'bonfirescape', en: 'Bonfire', zh: '篝火', background: '#000000', stir: true },
+  { id: 'plasmascape', names: { en: 'Plasma globe', 'zh-CN': '等离子球', 'zh-TW': '電漿球' }, background: '#000000', feed: false, skins: 'core' },
+  { id: 'koiscape', names: { en: 'Koi pond', 'zh-CN': '锦鲤池', 'zh-TW': '錦鯉池' }, background: '#040605', creatures: true, skins: 'koi' },
+  { id: 'bonfirescape', names: { en: 'Bonfire', 'zh-CN': '篝火', 'zh-TW': '營火' }, background: '#000000', stir: true },
 ];
 
+/** Your pictures for the built-in worlds' creatures, a folder per world. */
+let userSkins = null;
+const MEDIA_NAMES = { en: 'Your wallpaper', 'zh-CN': '自定义壁纸', 'zh-TW': '自訂桌布' };
+
+/** A scene's name for the menu: its page title up to the bullet, or its folder's name. */
+function sceneTitle(page, fallback) {
+  try { return /<title>([^<•]+)/.exec(fs.readFileSync(page, 'utf8'))?.[1]?.trim() || fallback; } catch { return fallback; }
+}
+
+/** Whether a picture, video or page has been chosen and is still there to show. */
+function mediaReady() {
+  const media = settings.media;
+  if (!media) return false;
+  if (media.kind === 'page') return typeof media.url === 'string' && media.url.length > 0;
+  return (media.kind === 'image' || media.kind === 'video') && typeof media.file === 'string' && fs.existsSync(media.file);
+}
+
+/**
+ * The built-in worlds, then your own scenes, then your own wallpaper if one is chosen.
+ * Each world is { id, kind, folder, names, background, feed?, stir?, creatures? }.
+ */
 function discoverWorlds() {
-  const page = (id) => path.join(ROOT, 'scenes', id, 'wallpaper.html');
-  const worlds = KNOWN_WORLDS.filter((world) => fs.existsSync(page(world.id)));
+  const page = (folder) => path.join(ROOT, 'scenes', folder, 'wallpaper.html');
+  const found = KNOWN_WORLDS.filter((choice) => fs.existsSync(page(choice.id)))
+    .map((choice) => ({ ...choice, kind: 'builtin', folder: choice.id }));
   let folders = [];
   try { folders = fs.readdirSync(path.join(ROOT, 'scenes')).sort(); } catch { /* none */ }
-  for (const id of folders) {
-    if (worlds.some((world) => world.id === id) || !fs.existsSync(page(id))) continue;
-    let name = id;
-    try { name = /<title>([^<•]+)/.exec(fs.readFileSync(page(id), 'utf8'))?.[1]?.trim() || id; } catch { /* keep id */ }
-    worlds.push({ id, en: name, zh: name, background: '#000000' });
+  // Scenes a fork added beside the built-in ones.
+  for (const folder of folders) {
+    if (found.some((choice) => choice.folder === folder) || !fs.existsSync(page(folder))) continue;
+    found.push({ id: folder, kind: 'builtin', folder, names: { en: sceneTitle(page(folder), folder) }, background: '#000000' });
   }
-  return worlds;
+  if (mediaReady()) found.push({ id: 'media', kind: 'media', names: MEDIA_NAMES, background: '#000000', feed: false });
+  return found;
 }
+
+/**
+ * Re-reads the folders, keeping the world shown if it is still there. If it went away
+ * (its folder deleted, its video moved), the first world takes its place.
+ */
+function refreshWorlds() {
+  const shown = world?.id;
+  worlds = discoverWorlds();
+  const same = worlds.find((choice) => choice.id === shown);
+  if (same) {
+    world = same;
+  } else if (worlds.length && shown) {
+    log(`${shown} is gone; showing ${worlds[0].id}`);
+    showWorld(worlds[0]);
+  }
+}
+
+/** The languages the menu speaks, each named in itself. */
+const LANGUAGES = [
+  { code: 'en', name: 'English' },
+  { code: 'zh-CN', name: '简体中文' },
+  { code: 'zh-TW', name: '繁體中文' },
+];
 
 const TEXT = {
   en: {
@@ -72,8 +120,42 @@ const TEXT = {
     taken: (keys) => `${keys} is used by another app`,
     doubleClick: 'Double-click empty desktop to feed', doubleClickStir: 'Double-click empty desktop to stir the fire',
     login: 'Start at Sign-in',
+    language: 'Language', system: 'Same as Windows', loading: 'Loading world…',
+    settings: "Settings…",
+    ui: {
+      title: "Deskworlds Settings",
+      world: "World",
+      builtIn: "Built-in worlds",
+      adjust: "Adjust",
+      adjustFor: "For {name}",
+      brightness: "Brightness",
+      contrast: "Contrast",
+      saturation: "Saturation",
+      hue: "Hue",
+      creatures: "Creatures",
+      creaturesNote: "The world starts again to change how many creatures it has.",
+      reset: "Reset",
+      media: "Your Own Wallpaper",
+      mediaNote: "Show a picture, a video or a web page instead of a world. Videos play without sound.",
+      image: "Choose Picture…",
+      video: "Choose Video…",
+      htmlFile: "Choose HTML File…",
+      pageUrl: "Web page address",
+      use: "Show",
+      badUrl: "Enter an address starting with http:// or https://",
+      showing: "Chosen: {name}",
+      pageNote: "While the desktop is covered or paused, a web page is hidden so it uses no power.",
+      skinsTitle: "Replace",
+      skinRoles: {"fish": "The fish", "koi": "The koi", "core": "The ball in the globe"},
+      skinNote: "Put your own pictures in their place. They keep everything the originals do: schooling, shying from the cursor, coming for food. A PNG with a transparent background, facing right, works best; several pictures are mixed.",
+      skinAdd: "Add Pictures…",
+      skinReset: "Restore the Originals",
+      skinRemove: "Remove",
+      showMedia: "Show This Wallpaper",
+      showingNow: "Showing now: {name}",
+    },
   },
-  zh: {
+  'zh-CN': {
     world: '世界', feed: '喂食', stir: '拨一拨篝火', pause: '暂停', resume: '继续',
     quit: '退出', saver: '节能模式已开启，画面保持静止', paused: '已暂停',
     pausedMotion: '已暂停（系统关闭了动画效果）',
@@ -83,6 +165,85 @@ const TEXT = {
     taken: (keys) => `${keys} 被其他程序占用`,
     doubleClick: '双击桌面空白处喂食', doubleClickStir: '双击桌面空白处拨火',
     login: '开机自动启动',
+    language: '语言', system: '跟随系统', loading: '正在加载世界…',
+    settings: "设置…",
+    ui: {
+      title: "Deskworlds 设置",
+      world: "世界",
+      builtIn: "内置世界",
+      adjust: "调整",
+      adjustFor: "当前：{name}",
+      brightness: "亮度",
+      contrast: "对比度",
+      saturation: "饱和度",
+      hue: "色相",
+      creatures: "生物数量",
+      creaturesNote: "修改生物数量时，世界会重新加载。",
+      reset: "恢复默认",
+      media: "自定义壁纸",
+      mediaNote: "用图片、视频或网页代替世界显示在桌面上。视频不会播放声音。",
+      image: "选择图片…",
+      video: "选择视频…",
+      htmlFile: "选择 HTML 文件…",
+      pageUrl: "网页地址",
+      use: "显示",
+      badUrl: "请输入以 http:// 或 https:// 开头的网址",
+      showing: "已选择：{name}",
+      pageNote: "桌面被挡住或暂停时，网页会被隐藏，不会在后台耗电。",
+      skinsTitle: "替换元素",
+      skinRoles: {"fish": "鱼", "koi": "锦鲤", "core": "球心的电极球"},
+      skinNote: "换成你自己的图片。换上的图片会保留原来的一切行为：成群游动、躲开鼠标、过来抢食。透明背景、朝向右边的 PNG 效果最好；添加多张会混在一起。",
+      skinAdd: "添加图片…",
+      skinReset: "恢复原样",
+      skinRemove: "移除",
+      showMedia: "显示这个壁纸",
+      showingNow: "正在显示：{name}",
+    },
+  },
+  'zh-TW': {
+    world: '世界', feed: '餵食', stir: '撥一撥營火', pause: '暫停', resume: '繼續',
+    quit: '結束', saver: '省電模式已開啟，畫面保持靜止', paused: '已暫停',
+    pausedMotion: '已暫停（系統關閉了動畫效果）',
+    off: '螢幕已關閉或鎖定，畫面保持靜止', waiting: '正在等待桌面就緒…',
+    resting: '被視窗擋住了，正在休息', running: (fps) => `正在以每秒 ${fps} 幀執行`,
+    next: '下一個世界', quick: '快速操作', hotkeys: '全域快速鍵',
+    taken: (keys) => `${keys} 已被其他程式使用`,
+    doubleClick: '按兩下桌面空白處餵食', doubleClickStir: '按兩下桌面空白處撥火',
+    login: '開機時自動啟動',
+    language: '語言', system: '跟隨系統', loading: '正在載入世界…',
+    settings: "設定…",
+    ui: {
+      title: "Deskworlds 設定",
+      world: "世界",
+      builtIn: "內建世界",
+      adjust: "調整",
+      adjustFor: "目前：{name}",
+      brightness: "亮度",
+      contrast: "對比",
+      saturation: "飽和度",
+      hue: "色相",
+      creatures: "生物數量",
+      creaturesNote: "修改生物數量時，世界會重新載入。",
+      reset: "恢復預設",
+      media: "自訂桌布",
+      mediaNote: "用圖片、影片或網頁取代世界顯示在桌面上。影片不會播放聲音。",
+      image: "選擇圖片…",
+      video: "選擇影片…",
+      htmlFile: "選擇 HTML 檔案…",
+      pageUrl: "網頁網址",
+      use: "顯示",
+      badUrl: "請輸入以 http:// 或 https:// 開頭的網址",
+      showing: "已選擇：{name}",
+      pageNote: "桌面被擋住或暫停時，網頁會被隱藏，不會在背景耗電。",
+      skinsTitle: "替換元素",
+      skinRoles: {"fish": "魚", "koi": "錦鯉", "core": "球心的電極球"},
+      skinNote: "換成你自己的圖片。換上的圖片會保留原來的一切行為：成群游動、躲開滑鼠、過來搶食。透明背景、朝向右邊的 PNG 效果最好；新增多張會混在一起。",
+      skinAdd: "新增圖片…",
+      skinReset: "恢復原樣",
+      skinRemove: "移除",
+      showMedia: "顯示這個桌布",
+      showingNow: "正在顯示：{name}",
+    },
   },
 };
 
@@ -132,7 +293,8 @@ app.commandLine.appendSwitch('disable-backgrounding-occluded-windows');
 
 protocol.registerSchemesAsPrivileged([{
   scheme: SCHEME,
-  privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true },
+  // stream: a video wallpaper is read in ranges as it plays.
+  privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true, stream: true },
 }]);
 
 const TYPES = {
@@ -152,15 +314,35 @@ const TYPES = {
   '.txt': 'text/plain; charset=utf-8',
 };
 
-/** Serves the scenes, and nothing outside them. */
+const MEDIA_TYPES = {
+  '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.png': 'image/png', '.webp': 'image/webp',
+  '.gif': 'image/gif', '.bmp': 'image/bmp', '.avif': 'image/avif',
+  '.mp4': 'video/mp4', '.m4v': 'video/mp4', '.mov': 'video/mp4', '.webm': 'video/webm',
+};
+const HOST_PAGES = path.join(__dirname, 'host');
+
+/**
+ * Everything the pages load: the host's own pages under /host, the chosen picture or
+ * video at /media/current, your scenes from your scenes folder, and the rest from the
+ * app's copy of the project. Nothing outside those folders.
+ */
 async function serveScenes(request) {
-  let file;
+  let pathname;
   try {
-    file = path.resolve(ROOT, `.${decodeURIComponent(new URL(request.url).pathname)}`);
+    pathname = decodeURIComponent(new URL(request.url).pathname);
   } catch {
     return new Response('Bad request', { status: 400 });
   }
-  if (!file.startsWith(ROOT + path.sep)) return new Response('Forbidden', { status: 403 });
+  if (pathname === '/media/current') return serveMedia(request);
+  const parts = pathname.split('/');
+  if (parts[1] === 'host') return serveFile(HOST_PAGES, parts.slice(2).join('/'));
+  if (parts[1] === 'skins' && userSkins) return serveFile(userSkins, parts.slice(2).join('/'));
+  return serveFile(ROOT, pathname);
+}
+
+async function serveFile(root, relative) {
+  const file = path.resolve(root, `./${relative}`);
+  if (!file.startsWith(root + path.sep)) return new Response('Forbidden', { status: 403 });
   try {
     const data = await fs.promises.readFile(file);
     const type = TYPES[path.extname(file).toLowerCase()] || 'application/octet-stream';
@@ -170,8 +352,90 @@ async function serveScenes(request) {
   }
 }
 
+/** The chosen picture or video, in byte ranges when asked, which video playback needs. */
+async function serveMedia(request) {
+  const file = settings.media?.file;
+  let size;
+  try { size = (await fs.promises.stat(file)).size; } catch { return new Response('Not found', { status: 404 }); }
+  const headers = {
+    'content-type': MEDIA_TYPES[path.extname(file).toLowerCase()] || 'application/octet-stream',
+    'accept-ranges': 'bytes', 'cache-control': 'no-store',
+  };
+  const range = /^bytes=(\d*)-(\d*)$/.exec(request.headers.get('range') || '');
+  if (!range) {
+    return new Response(Readable.toWeb(fs.createReadStream(file)), { headers: { ...headers, 'content-length': String(size) } });
+  }
+  let start = range[1] === '' ? size - Number(range[2]) : Number(range[1]);
+  let end = range[1] !== '' && range[2] !== '' ? Number(range[2]) : size - 1;
+  start = Math.max(0, start);
+  end = Math.min(end, size - 1);
+  if (!(start <= end)) return new Response(null, { status: 416, headers: { 'content-range': `bytes */${size}` } });
+  return new Response(Readable.toWeb(fs.createReadStream(file, { start, end })), {
+    status: 206,
+    headers: { ...headers, 'content-length': String(end - start + 1), 'content-range': `bytes ${start}-${end}/${size}` },
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Adjustments, kept per world: light and colour apply to any page as a CSS filter, live;
+// the number of creatures is read by the scene when it loads.
+
+const TWEAKS = {
+  brightness: { initial: 100, min: 40, max: 160 },
+  contrast: { initial: 100, min: 50, max: 150 },
+  saturation: { initial: 100, min: 0, max: 200 },
+  hue: { initial: 0, min: -180, max: 180 },
+  creatures: { initial: 100, min: 25, max: 250 },
+};
+
+function tweaksFor(choice) {
+  const saved = settings.tweaks?.[choice.id] || {};
+  const tweaks = {};
+  for (const [key, { initial, min, max }] of Object.entries(TWEAKS)) {
+    const value = Number(saved[key]);
+    tweaks[key] = Number.isFinite(value) ? Math.min(max, Math.max(min, value)) : initial;
+  }
+  return tweaks;
+}
+
+/** The CSS filter for a world's light and colour, or '' when nothing was changed. */
+function filterFor(choice) {
+  const { brightness, contrast, saturation, hue } = tweaksFor(choice);
+  return [
+    brightness !== 100 && `brightness(${brightness}%)`,
+    contrast !== 100 && `contrast(${contrast}%)`,
+    saturation !== 100 && `saturate(${saturation}%)`,
+    hue !== 0 && `hue-rotate(${hue}deg)`,
+  ].filter(Boolean).join(' ');
+}
+
+/** Where a world's page is: a scene of either kind, the viewer, or the chosen web page. */
+function pageFor(choice) {
+  if (choice.kind === 'media') {
+    const media = settings.media;
+    if (media.kind === 'page') return media.url;
+    return `${SCHEME}://${HOST}/host/media.html?kind=${media.kind}`;
+  }
+  const { creatures } = tweaksFor(choice);
+  const share = choice.creatures && creatures !== 100 ? `&creatures=${creatures / 100}` : '';
+  const pictures = skinsFor(choice).map((file) => `/skins/${choice.id}/${encodeURIComponent(file)}`);
+  const skins = pictures.length ? `&skins=${encodeURIComponent(JSON.stringify(pictures))}` : '';
+  // Native: full display resolution plugged in, the Balanced profile on battery.
+  return `${SCHEME}://${HOST}/scenes/${encodeURIComponent(choice.folder)}/wallpaper.html?quality=native${share}${skins}`;
+}
+
+/** The pictures chosen to stand in for a world's creatures, those still on disk. */
+function skinsFor(choice) {
+  if (!choice?.skins || !userSkins) return [];
+  const files = Array.isArray(settings.skins?.[choice.id]) ? settings.skins[choice.id] : [];
+  return files.filter((file) => typeof file === 'string' && fs.existsSync(path.join(userSkins, choice.id, file))).slice(0, 12);
+}
+
+const showsWebPage = (choice) => choice?.kind === 'media' && settings.media?.kind === 'page';
+
 // ---------------------------------------------------------------------------
 
+let language = 'en';
 let text = TEXT.en;
 let sceneSession = null;
 let tray = null;
@@ -206,7 +470,40 @@ let doubleClickWindow = 500;
 const takenShortcuts = new Set();
 
 const awake = () => !locked && !asleep && !displayOff;
-const titleOf = (choice) => (text === TEXT.zh ? choice.zh : choice.en);
+const titleOf = (choice) => choice.names[language] || choice.names.en;
+
+/**
+ * The language chosen in the menu, or with none chosen the closest to Windows' own
+ * preferences, taken in order: Traditional Chinese for Taiwan, Hong Kong and Macao.
+ */
+function resolveLanguage() {
+  if (TEXT[settings.language]) return settings.language;
+  const preferred = [...(app.getPreferredSystemLanguages?.() || []), app.getLocale()];
+  for (const tag of preferred.map((entry) => String(entry).toLowerCase())) {
+    if (/^zh-(hant|tw|hk|mo)/.test(tag)) return 'zh-TW';
+    if (tag.startsWith('zh')) return 'zh-CN';
+    if (tag.startsWith('en')) return 'en';
+  }
+  return 'en';
+}
+
+/** Puts the language in force everywhere it shows: the menu, the tooltip, the pages. */
+function applyLanguage() {
+  language = resolveLanguage();
+  text = TEXT[language];
+  if (world) tray?.setToolTip(`Deskworlds · ${titleOf(world)}`);
+  for (const wallpaper of wallpapers) wallpaper.localize();
+}
+
+/** null goes back to following Windows. */
+function chooseLanguage(code) {
+  if (code) settings.language = code;
+  else delete settings.language;
+  saveSettings();
+  applyLanguage();
+  log(`language: ${code || `same as Windows (${language})`}`);
+  notifySettings();
+}
 const describe = (display) => `${display.bounds.width}×${display.bounds.height}@${display.scaleFactor}x`;
 
 /** "Animation effects" off in Settings › Accessibility, the Windows Reduce Motion. */
@@ -307,9 +604,13 @@ class Wallpaper {
       clearTimeout(this.fallback);
       this.fallback = setTimeout(() => { if (!this.loaded) this.ready(); }, 15000);
     });
+    contents.on('dom-ready', () => { this.localize(); this.applyLook(); });
+    // A wallpaper never makes a sound, whatever page or video it shows.
+    contents.setAudioMuted(true);
     contents.setWindowOpenHandler(() => ({ action: 'deny' }));
+    // A web page chosen as the wallpaper may move between its own pages; scenes stay put.
     contents.on('will-navigate', (event, url) => {
-      if (!url.startsWith(`${SCHEME}://`)) event.preventDefault();
+      if (!url.startsWith(`${SCHEME}://`) && !showsWebPage(this.world)) event.preventDefault();
     });
 
     this.win.on('closed', () => {
@@ -330,9 +631,18 @@ class Wallpaper {
     this.inside = false;
     if (this.win.isDestroyed()) return;
     this.win.setBackgroundColor(choice.background);
-    // Native: full display resolution plugged in, the Balanced profile on battery.
-    this.win.loadURL(`${SCHEME}://${HOST}/scenes/${choice.id}/wallpaper.html?quality=native`)
+    this.win.loadURL(pageFor(choice))
       .catch((error) => { if (error.code !== 'ERR_ABORTED' && !quitting) log(`could not open ${choice.id}`, error); });
+  }
+
+  /** Light and colour, sent again whenever they are adjusted. */
+  applyLook() {
+    if (!this.win.isDestroyed()) this.win.webContents.send('deskworlds:filter', filterFor(this.world));
+  }
+
+  /** The scene's "Loading world…", which shows for a while, in the menu's language. */
+  localize() {
+    if (!this.win.isDestroyed()) this.win.webContents.send('deskworlds:loading-text', text.loading);
   }
 
   /** Behind the desktop icons, or into plain sight in preview. */
@@ -394,6 +704,12 @@ class Wallpaper {
     if (this.rate === 0 && this.inside) this.pointerOut();
     log(`${this.world.id} on ${describe(this.display)}: ${this.rate} fps`);
     this.send();
+    // A web page knows nothing of frame rates, so while it should be still it is hidden,
+    // which stops it drawing; the desktop is covered then anyway, or paused.
+    if (showsWebPage(this.world) && this.attached && !PREVIEW && !this.win.isDestroyed()) {
+      if (this.rate === 0) this.win.hide();
+      else this.win.showInactive();
+    }
     return true;
   }
 
@@ -421,6 +737,16 @@ class Wallpaper {
    */
   feed() {
     if (this.rate > 0) this.run("typeof sceneFeed === 'function' && sceneFeed()");
+  }
+
+  /**
+   * A double-click on empty desktop, at a point in this display's own coordinates. A
+   * scene that knows where things are takes it there (sceneTap); the others are fed.
+   */
+  tap(x, y) {
+    if (this.rate === 0) return;
+    this.run(`typeof sceneTap === 'function' ? sceneTap(${Math.round(x)}, ${Math.round(y)})
+      : typeof sceneFeed === 'function' && sceneFeed()`);
   }
 
   /** A cursor position in this display's coordinates, or null when it left the display. */
@@ -723,13 +1049,13 @@ function pollClicks() {
   lastClick = { point, time: now };
 }
 
-/** Feeds the world on the display that was double-clicked. */
+/** Taps the world on the display that was double-clicked, at the spot double-clicked. */
 function feedAt(point) {
   const wallpaper = wallpapers.find((w) => {
     const b = w.display.bounds;
     return !w.win.isDestroyed() && point.x >= b.x && point.x < b.x + b.width && point.y >= b.y && point.y < b.y + b.height;
   });
-  wallpaper?.feed();
+  wallpaper?.tap(point.x - wallpaper.display.bounds.x, point.y - wallpaper.display.bounds.y);
 }
 
 // ---------------------------------------------------------------------------
@@ -755,6 +1081,193 @@ function toggleStartAtLogin() {
 }
 
 // ---------------------------------------------------------------------------
+// The settings window: worlds, your own scenes, adjustments and your own wallpaper.
+// It is a page served like the scenes, with its own small bridge (settings-preload.js),
+// so the Mac app can show the same page.
+
+let settingsWindow = null;
+let saveTimer = null;
+let reloadTimer = null;
+
+function openSettings() {
+  if (settingsWindow && !settingsWindow.isDestroyed()) {
+    settingsWindow.show();
+    settingsWindow.focus();
+    return;
+  }
+  settingsWindow = new BrowserWindow({
+    width: 720, height: 680, minWidth: 560, minHeight: 480, show: false, icon: ICON,
+    title: text.ui.title, autoHideMenuBar: true, backgroundColor: '#17191e',
+    webPreferences: {
+      preload: path.join(__dirname, 'settings-preload.js'), session: sceneSession,
+      sandbox: true, contextIsolation: true, nodeIntegration: false, spellcheck: false,
+    },
+  });
+  settingsWindow.setMenuBarVisibility(false);
+  settingsWindow.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+  settingsWindow.webContents.on('will-navigate', (event) => event.preventDefault());
+  settingsWindow.once('ready-to-show', () => settingsWindow?.show());
+  settingsWindow.on('closed', () => { settingsWindow = null; });
+  settingsWindow.loadURL(`${SCHEME}://${HOST}/host/settings.html`);
+}
+
+/** Tells an open settings window that something it shows has changed. */
+function notifySettings() {
+  if (settingsWindow && !settingsWindow.isDestroyed()) {
+    settingsWindow.setTitle(text.ui.title);
+    settingsWindow.webContents.send('settings:changed');
+  }
+}
+
+/** Sliders send many small changes; the file is written once they settle. */
+function saveSoon() {
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(saveSettings, 400);
+}
+
+function settingsState() {
+  refreshWorlds();
+  const media = settings.media && mediaReady() ? settings.media : null;
+  return {
+    language,
+    ui: text.ui,
+    worlds: worlds.map((choice) => ({ id: choice.id, kind: choice.kind, title: titleOf(choice) })),
+    current: world.id,
+    currentTitle: titleOf(world),
+    skins: world.skins ? { role: world.skins, files: skinsFor(world).map((file) => ({ file, url: `/skins/${world.id}/${encodeURIComponent(file)}` })) } : null,
+    tweaks: tweaksFor(world),
+    ranges: TWEAKS,
+    creatures: Boolean(world.creatures),
+    media: media && {
+      kind: media.kind,
+      name: media.kind === 'page' && !media.file ? media.url : path.basename(media.file || media.url),
+      showing: world.kind === 'media',
+    },
+  };
+}
+
+
+/** Shows the chosen picture, video or page, replacing what was shown before. */
+function showMedia(media) {
+  settings.media = media;
+  refreshWorlds();
+  const choice = worlds.find((entry) => entry.kind === 'media');
+  if (choice) showWorld(choice);
+  log(`your wallpaper: ${media.kind} ${media.file || media.url}`);
+}
+
+const PICKERS = {
+  image: { extensions: ['jpg', 'jpeg', 'png', 'webp', 'gif', 'bmp', 'avif'], label: 'image' },
+  video: { extensions: ['mp4', 'webm', 'mov', 'm4v'], label: 'video' },
+  html: { extensions: ['html', 'htm'], label: 'htmlFile' },
+};
+
+function handleSettings() {
+  // Only the settings window may change settings; the wallpapers, which can show any web
+  // page, have no way to reach these, and are refused even if one tried.
+  const handle = (channel, run) => ipcMain.handle(channel, (event, ...args) => {
+    if (!settingsWindow || settingsWindow.isDestroyed() || event.sender !== settingsWindow.webContents) {
+      throw new Error('not the settings window');
+    }
+    return run(...args);
+  });
+
+  handle('settings:state', () => settingsState());
+  handle('settings:world', (id) => {
+    const choice = worlds.find((entry) => entry.id === id);
+    if (choice) selectWorld(choice);
+    return settingsState();
+  });
+  handle('settings:tweak', (key, value) => {
+    if (!TWEAKS[key] || !Number.isFinite(Number(value))) return settingsState();
+    settings.tweaks = settings.tweaks || {};
+    settings.tweaks[world.id] = { ...settings.tweaks[world.id], [key]: Number(value) };
+    saveSoon();
+    if (key === 'creatures') {
+      // Read only as the scene loads, so it starts again once the slider settles.
+      clearTimeout(reloadTimer);
+      reloadTimer = setTimeout(() => { for (const wallpaper of wallpapers) wallpaper.load(world); }, 600);
+    } else {
+      for (const wallpaper of wallpapers) wallpaper.applyLook();
+    }
+    return null;
+  });
+  handle('settings:reset', () => {
+    const hadCreatures = settings.tweaks?.[world.id]?.creatures !== undefined;
+    if (settings.tweaks) delete settings.tweaks[world.id];
+    saveSettings();
+    for (const wallpaper of wallpapers) {
+      if (hadCreatures && world.creatures) wallpaper.load(world);
+      else wallpaper.applyLook();
+    }
+    return settingsState();
+  });
+  handle('settings:pick', async (kind) => {
+    const picker = PICKERS[kind];
+    if (!picker) return settingsState();
+    const result = await dialog.showOpenDialog(settingsWindow, {
+      title: text.ui[picker.label].replace(/…$/, ''),
+      properties: ['openFile'],
+      filters: [{ name: text.ui[picker.label].replace(/…$/, ''), extensions: picker.extensions }],
+    });
+    const file = result.filePaths?.[0];
+    if (!result.canceled && file) {
+      showMedia(kind === 'html' ? { kind: 'page', url: pathToFileURL(file).href, file } : { kind, file });
+    }
+    return settingsState();
+  });
+  handle('settings:page', (address) => {
+    let url;
+    try { url = new URL(String(address).trim()); } catch { return { error: text.ui.badUrl }; }
+    if (url.protocol !== 'https:' && url.protocol !== 'http:') return { error: text.ui.badUrl };
+    showMedia({ kind: 'page', url: url.href });
+    return settingsState();
+  });
+  // Back to the chosen picture, video or page after showing a world.
+  handle('settings:show-media', () => {
+    const choice = worlds.find((entry) => entry.kind === 'media');
+    if (choice) selectWorld(choice);
+    return settingsState();
+  });
+
+  // Your pictures in place of the world's creatures: added, taken away, or all cleared.
+  const reloadSkins = () => { saveSettings(); for (const wallpaper of wallpapers) wallpaper.load(world); return settingsState(); };
+  handle('settings:skin-add', async () => {
+    if (!world.skins) return settingsState();
+    const result = await dialog.showOpenDialog(settingsWindow, {
+      title: text.ui.skinAdd.replace(/…$/, ''), properties: ['openFile', 'multiSelections'],
+      filters: [{ name: text.ui.skinAdd.replace(/…$/, ''), extensions: ['png', 'webp', 'gif', 'jpg', 'jpeg'] }],
+    });
+    if (result.canceled || !result.filePaths?.length) return settingsState();
+    const folder = path.join(userSkins, world.id);
+    fs.mkdirSync(folder, { recursive: true });
+    const chosen = skinsFor(world);
+    for (const source of result.filePaths.slice(0, 12 - chosen.length)) {
+      const extension = path.extname(source).toLowerCase();
+      const stem = path.basename(source, path.extname(source)).replace(/[^\w\u4e00-\u9fff-]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 60) || 'picture';
+      let name = `${stem}${extension}`;
+      for (let n = 2; fs.existsSync(path.join(folder, name)); n++) name = `${stem}-${n}${extension}`;
+      fs.copyFileSync(source, path.join(folder, name));
+      chosen.push(name);
+    }
+    settings.skins = { ...settings.skins, [world.id]: chosen };
+    log(`pictures for ${world.id}: ${chosen.join(', ')}`);
+    return reloadSkins();
+  });
+  handle('settings:skin-remove', (file) => {
+    settings.skins = { ...settings.skins, [world.id]: skinsFor(world).filter((entry) => entry !== file) };
+    fs.rmSync(path.join(userSkins, world.id, path.basename(String(file))), { force: true });
+    return reloadSkins();
+  });
+  handle('settings:skin-reset', () => {
+    if (settings.skins) delete settings.skins[world.id];
+    fs.rmSync(path.join(userSkins, world.id), { recursive: true, force: true });
+    return reloadSkins();
+  });
+
+}
+
+// ---------------------------------------------------------------------------
 // The tray icon, the app's only visible piece.
 
 /** Says what the wallpaper is doing, and why: unexplained stillness reads as a fault. */
@@ -768,16 +1281,20 @@ function statusLine() {
 }
 
 function menu() {
+  refreshWorlds();
   applyRate();
+  const item = (choice) => ({
+    label: titleOf(choice), type: 'radio', checked: choice === world, click: () => selectWorld(choice),
+  });
+  const mine = worlds.filter((choice) => choice.kind !== 'builtin');
   return Menu.buildFromTemplate([
     { label: statusLine(), enabled: false },
     { type: 'separator' },
     {
       label: text.world,
       submenu: [
-        ...worlds.map((choice) => ({
-          label: titleOf(choice), type: 'radio', checked: choice === world, click: () => selectWorld(choice),
-        })),
+        ...worlds.filter((choice) => choice.kind === 'builtin').map(item),
+        ...(mine.length ? [{ type: 'separator' }, ...mine.map(item)] : []),
         { type: 'separator' },
         { label: text.next, click: nextWorld, ...accelerator('world') },
       ],
@@ -793,6 +1310,7 @@ function menu() {
     // With Energy Saver on nothing is going to draw, so Resume would be a false promise.
     { label: stopped ? text.resume : text.pause, enabled: !power.saver, click: togglePause, ...accelerator('pause') },
     { type: 'separator' },
+    { label: text.settings, click: openSettings },
     {
       label: text.quick,
       submenu: [
@@ -809,6 +1327,16 @@ function menu() {
       ],
     },
     { type: 'separator' },
+    {
+      label: text.language,
+      // One radio group, so no separator inside: following Windows is a choice like the others.
+      submenu: [
+        { label: text.system, type: 'radio', checked: !TEXT[settings.language], click: () => chooseLanguage(null) },
+        ...LANGUAGES.map(({ code, name }) => ({
+          label: name, type: 'radio', checked: settings.language === code, click: () => chooseLanguage(code),
+        })),
+      ],
+    },
     ...(canStartAtLogin()
       ? [{ label: text.login, type: 'checkbox', checked: startsAtLogin(), click: toggleStartAtLogin }]
       : []),
@@ -836,11 +1364,17 @@ function addTray() {
 /** Every display changes together, so the menu's check mark is never a half-truth. */
 function selectWorld(choice) {
   if (choice === world) return;
+  showWorld(choice);
+}
+
+/** Shows a world on every display, even the one already shown, whose content may be new. */
+function showWorld(choice) {
   world = choice;
   settings.world = choice.id;
   saveSettings();
   tray?.setToolTip(`Deskworlds · ${titleOf(choice)}`);
   for (const wallpaper of wallpapers) wallpaper.load(choice);
+  notifySettings();
 }
 
 /** The choice outlives a restart, so a paused world is still paused after signing in. */
@@ -879,11 +1413,11 @@ async function start() {
   fs.mkdirSync(data, { recursive: true });
   logFile = path.join(data, 'deskworlds.log');
   trimLog();
-  const language = app.getPreferredSystemLanguages?.()[0] || app.getLocale();
-  text = /^zh/i.test(language) ? TEXT.zh : TEXT.en;
 
   settingsFile = path.join(data, 'settings.json');
   loadSettings();
+  applyLanguage();
+  userSkins = path.join(data, 'skins');
   worlds = discoverWorlds();
   if (!worlds.length) {
     log(`no scenes found under ${ROOT}`);
@@ -908,6 +1442,7 @@ async function start() {
   ipcMain.on('deskworlds:ready', (event) => {
     wallpapers.find((w) => !w.win.isDestroyed() && w.win.webContents.id === event.sender.id)?.ready();
   });
+  handleSettings();
 
   addTray();
   registerShortcuts();

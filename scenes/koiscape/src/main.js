@@ -29,7 +29,10 @@ async function start() {
   const seed = capture ? Number(params.get('seed')) || 1 : Math.floor(Math.random() * 2 ** 32);
   const random = randomGenerator(seed);
   const first = homeBounds(stage.clientWidth / Math.max(1, stage.clientHeight));
-  const pond = createPond({ random, count: fishCount(first.halfW / first.halfH), ...first });
+  const share = Number(params.get('creatures'));
+  const pond = createPond({
+    random, count: fishCount(first.halfW / first.halfH, Number.isFinite(share) && share > 0 ? share : 1), ...first,
+  });
   const { renderer, render: draw, resize: sizeTargets, step: stepRipples, project, locate, dispose } = createRenderer(canvas, pond);
   const between = ([min, max]) => min + Math.floor(random() * (max - min + 1));
   let loop = null, accumulator = 0, frames = 0, zeroSize = false;

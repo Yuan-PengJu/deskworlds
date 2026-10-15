@@ -5,6 +5,7 @@ import {
 } from './shaders.js';
 import { bodyGeometry, finGeometry, padGeometry, petalGeometry, halfWidth, VARIETIES } from './koi.js';
 import { POND_DEPTH, PELLET, SPINE_JOINTS, SPINE_SPAN, STROKE, RIPPLE_SPEED, FIXED_STEP } from './pond.js';
+import { createSkins } from '../../shared/skins.js';
 
 // The camera hangs straight above the middle of the pond, far enough up that the view is
 // nearly flat. HALF_HEIGHT is how much water shows from the centre of the frame to its top edge.
@@ -118,6 +119,16 @@ export function createRenderer(canvas, pond) {
     }));
     return { fish, body, fin, finDepth, shared };
   });
+  // Pictures of your own in the koi's place, when the host passes some (shared/skins.js).
+  // They lie in the water and write their depth into alpha, as the koi do, for the murk.
+  const skins = createSkins(under, { count: koi.length, view: 'top', light: 0.85, wave: 0.07, depthAlpha: true });
+  if (skins) for (const k of koi) k.body.visible = k.fin.visible = k.finDepth.visible = false;
+  const middle = Math.floor(SPINE_JOINTS / 2) * 4, place = new THREE.Vector3();
+  const readKoi = (i) => {
+    const { fish } = koi[i];
+    place.set(fish.spine[middle], fish.spine[middle + 1], fish.spine[middle + 2]);
+    return { position: place, direction: fish.heading, length: fish.len * 0.85 };
+  };
 
   // --- On the surface: the water itself, then pads, flowers and pellets.
   const over = new THREE.Scene();
@@ -278,6 +289,7 @@ export function createRenderer(canvas, pond) {
   function render({ cheap = false } = {}) {
     renderer.info.reset();
     sync();
+    skins?.update(readKoi, camera, performance.now() / 1000);
     look.uFrame.value = (look.uFrame.value + 1) % 4096;
     surface.material.uniforms.uCalm.value = 1;
     renderer.setRenderTarget(padMask);

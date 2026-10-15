@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en" data-motion="host">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Your wallpaper • Deskworlds</title>
+    <style>
+      html, body { margin: 0; height: 100%; overflow: hidden; background: #000; }
+      img, video { position: fixed; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+    </style>
+  </head>
+  <body>
+    <script>
+      // A picture or a video from the settings window, filling the screen like a desktop
+      // picture set to Fill. A video plays only while the host says the desktop can be
+      // seen, and never with sound.
+      const kind = new URLSearchParams(location.search).get('kind');
+      const media = document.createElement(kind === 'video' ? 'video' : 'img');
+      if (kind === 'video') Object.assign(media, { muted: true, loop: true, playsInline: true, preload: 'auto' });
+      media.src = '/media/current';
+      document.body.append(media);
+
+      window.sceneRate = (fps) => {
+        if (kind !== 'video') return;
+        if (fps > 0) media.play().catch(() => {});
+        else media.pause();
+      };
+      window.scenePower = () => {};
+      window.sceneFeed = () => {};
+      window.webkit?.messageHandlers?.ready?.postMessage(true);
+    </script>
+  </body>
+</html>

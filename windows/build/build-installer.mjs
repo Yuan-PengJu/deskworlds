@@ -98,9 +98,11 @@ console.log(`    locales: ${megabytes(localesBefore)} -> ${megabytes(sizeOf(path
 
 step('The host');
 fs.mkdirSync(app, { recursive: true });
-for (const file of ['main.js', 'desktop.js', 'preload.js', 'icon.ico', 'icon.png']) {
+for (const file of ['main.js', 'desktop.js', 'preload.js', 'settings-preload.js', 'icon.ico', 'icon.png']) {
   fs.copyFileSync(path.join(windows, file), path.join(app, file));
 }
+// The settings window, the picture and video viewer, and the world thumbnails.
+fs.cpSync(path.join(windows, 'host'), path.join(app, 'host'), { recursive: true });
 const { name, productName, description, license, main, dependencies } = pkg;
 fs.writeFileSync(path.join(app, 'package.json'),
   `${JSON.stringify({ name, productName, version: pkg.version, description, license, main, dependencies }, null, 2)}\n`);

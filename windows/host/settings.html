@@ -1,0 +1,277 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Deskworlds</title>
+    <style>
+      /* The app icon's riverbed: deep green-black, with its pale moss as the one accent. */
+      :root {
+        color-scheme: dark;
+        --bg: #121a17;
+        --surface: #1a2420;
+        --line: #2b3a33;
+        --text: #e6eee8;
+        --muted: #93a59c;
+        --accent: #b6d3a4;
+        --accent-ink: #13201a;
+        --error: #eba58f;
+      }
+      @media (prefers-color-scheme: light) {
+        :root {
+          color-scheme: light;
+          --bg: #f1f4f0;
+          --surface: #ffffff;
+          --line: #d5dfd8;
+          --text: #18221d;
+          --muted: #5b6d64;
+          --accent: #3d6b4c;
+          --accent-ink: #ffffff;
+          --error: #a4442c;
+        }
+      }
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--text);
+        font: 14px/1.55 system-ui, "Segoe UI Variable Text", "Segoe UI", "Microsoft YaHei UI",
+          "PingFang SC", "PingFang TC", "Hiragino Sans GB", sans-serif;
+      }
+      main { max-width: 680px; padding: 28px 32px 44px; }
+      h2 { font-size: 19px; font-weight: 600; margin: 0 0 14px; }
+      h3 { font-size: 13px; font-weight: 600; color: var(--muted); margin: 22px 0 10px; }
+      section + section { margin-top: 34px; padding-top: 26px; border-top: 1px solid var(--line); }
+      p { margin: 0; }
+      .note { color: var(--muted); font-size: 13px; margin-top: 10px; max-width: 62ch; }
+      .error { color: var(--error); font-size: 13px; margin-top: 8px; }
+      [hidden] { display: none !important; }
+
+      /* The worlds, as pictures of themselves. */
+      .tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(148px, 1fr)); gap: 10px; }
+      .tile {
+        display: flex; flex-direction: column; padding: 0; overflow: hidden; text-align: left;
+        font: inherit; color: inherit; cursor: pointer;
+        background: var(--surface); border: 1px solid var(--line); border-radius: 10px;
+      }
+      .tile img, .tile .mark { display: block; width: 100%; aspect-ratio: 16 / 9; object-fit: cover; }
+      .tile .mark {
+        display: grid; place-items: center; font-size: 26px; color: var(--muted);
+        background: color-mix(in srgb, var(--line) 55%, var(--surface));
+      }
+      .tile .name { padding: 7px 10px 8px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      .tile[aria-pressed="true"] { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
+      .tile[aria-pressed="true"] .name { color: var(--accent); font-weight: 600; }
+
+      button {
+        font: inherit; color: var(--text); background: var(--surface); cursor: pointer;
+        border: 1px solid var(--line); border-radius: 8px; padding: 6px 14px;
+      }
+      button.primary { background: var(--accent); color: var(--accent-ink); border-color: transparent; }
+      button:hover { border-color: var(--muted); }
+      :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+      .row { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; align-items: flex-end; }
+      .grow { flex: 1 1 260px; }
+      #media-choice { align-items: center; }
+      #media-choice .note { margin-top: 0; }
+      label > span { display: block; color: var(--muted); font-size: 13px; margin-bottom: 4px; }
+      input[type="text"], input[type="url"] {
+        box-sizing: border-box; width: 100%; font: inherit; color: var(--text);
+        background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 6px 10px;
+      }
+
+      .for { color: var(--muted); margin: -8px 0 10px; }
+      .slider { display: grid; grid-template-columns: 7.5em 1fr 4.5em; align-items: center; gap: 12px; margin: 8px 0; }
+      .slider input { width: 100%; accent-color: var(--accent); }
+      .slider output { text-align: right; color: var(--muted); font-variant-numeric: tabular-nums; }
+
+      /* The pictures standing in for a world's creatures. */
+      .pictures { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+      .picture { position: relative; width: 84px; height: 84px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); }
+      .picture img { width: 100%; height: 100%; object-fit: contain; padding: 6px; box-sizing: border-box; }
+      .picture button { position: absolute; top: -8px; right: -8px; width: 24px; height: 24px; padding: 0; border-radius: 50%; line-height: 1; }
+
+      @media (max-width: 520px) {
+        main { padding: 20px 18px 32px; }
+        .slider { grid-template-columns: 6em 1fr 3.5em; }
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <section aria-labelledby="world-heading">
+        <h2 id="world-heading" data-text="world"></h2>
+        <div class="tiles" id="builtin"></div>
+      </section>
+
+      <section aria-labelledby="adjust-heading">
+        <h2 id="adjust-heading" data-text="adjust"></h2>
+        <p class="for" id="adjust-for"></p>
+        <div id="sliders"></div>
+        <p class="note" id="creatures-note" data-text="creaturesNote"></p>
+        <div class="row"><button type="button" id="reset" data-text="reset"></button></div>
+
+        <div id="skins" hidden>
+          <h3 id="skins-title"></h3>
+          <p class="note" data-text="skinNote"></p>
+          <div class="pictures" id="skin-list"></div>
+          <div class="row">
+            <button type="button" id="skin-add" class="primary" data-text="skinAdd"></button>
+            <button type="button" id="skin-reset" data-text="skinReset"></button>
+          </div>
+        </div>
+      </section>
+
+      <section aria-labelledby="media-heading">
+        <h2 id="media-heading" data-text="media"></h2>
+        <p class="note" data-text="mediaNote"></p>
+        <div class="row">
+          <button type="button" data-pick="image" data-text="image"></button>
+          <button type="button" data-pick="video" data-text="video"></button>
+          <button type="button" data-pick="html" data-text="htmlFile"></button>
+        </div>
+        <form id="page-form">
+          <div class="row">
+            <label class="grow"><span data-text="pageUrl"></span><input id="page-url" type="url" placeholder="https://" /></label>
+            <button type="submit" data-text="use"></button>
+          </div>
+        </form>
+        <p class="error" id="page-error" role="alert" hidden></p>
+        <div class="row" id="media-choice" hidden>
+          <span class="note" id="media-current"></span>
+          <button type="button" id="show-media" class="primary" data-text="showMedia"></button>
+        </div>
+        <p class="note" data-text="pageNote"></p>
+      </section>
+    </main>
+
+    <script>
+      const api = window.deskworlds;
+      const THUMBS = new Set(['riverscape', 'reefscape', 'bettascape', 'plasmascape', 'koiscape', 'bonfirescape']);
+      const SLIDERS = [['brightness', '%'], ['contrast', '%'], ['saturation', '%'], ['hue', '°'], ['creatures', '%']];
+      const $ = (id) => document.getElementById(id);
+      const fill = (template, values) => template.replace(/\{(\w+)\}/g, (_, key) => values[key] ?? '');
+      let state = null;
+
+      function tile(world) {
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.className = 'tile';
+        button.setAttribute('aria-pressed', String(world.id === state.current));
+        if (THUMBS.has(world.id)) {
+          const picture = document.createElement('img');
+          picture.src = `thumbs/${world.id}.jpg`;
+          picture.alt = '';
+          button.append(picture);
+        } else {
+          // A world a fork added, without a picture of its own.
+          const mark = document.createElement('span');
+          mark.className = 'mark';
+          mark.setAttribute('aria-hidden', 'true');
+          mark.textContent = Array.from(world.title)[0] || '·';
+          button.append(mark);
+        }
+        const name = document.createElement('span');
+        name.className = 'name';
+        name.textContent = world.title;
+        button.append(name);
+        button.addEventListener('click', async () => {
+          state = await api.chooseWorld(world.id);
+          render();
+        });
+        return button;
+      }
+
+      // Sliders send while dragging, at most once a frame; the creature count, which
+      // restarts the world, only once it is let go.
+      let pending = null;
+      function send(key, value) {
+        if (key === 'creatures') return;
+        const first = !pending;
+        pending = { key, value };
+        if (first) requestAnimationFrame(() => { api.tweak(pending.key, pending.value); pending = null; });
+      }
+
+      function renderSliders() {
+        const box = $('sliders');
+        box.replaceChildren();
+        for (const [key, unit] of SLIDERS) {
+          if (key === 'creatures' && !state.creatures) continue;
+          const { min, max } = state.ranges[key];
+          const label = document.createElement('label');
+          label.className = 'slider';
+          const name = document.createElement('span');
+          name.textContent = state.ui[key];
+          const input = document.createElement('input');
+          Object.assign(input, { type: 'range', min, max, step: 1, value: state.tweaks[key] });
+          const output = document.createElement('output');
+          const show = () => { output.textContent = `${input.value}${unit}`; };
+          show();
+          input.addEventListener('input', () => { show(); send(key, Number(input.value)); });
+          input.addEventListener('change', () => api.tweak(key, Number(input.value)));
+          label.append(name, input, output);
+          box.append(label);
+        }
+        $('creatures-note').hidden = !state.creatures;
+      }
+
+      function render() {
+        const ui = state.ui;
+        document.documentElement.lang = state.language;
+        document.title = ui.title;
+        for (const element of document.querySelectorAll('[data-text]')) element.textContent = ui[element.dataset.text];
+        $('builtin').replaceChildren(...state.worlds.filter((world) => world.kind === 'builtin').map(tile));
+        $('adjust-for').textContent = fill(ui.adjustFor, { name: state.currentTitle });
+        renderSliders();
+        renderSkins();
+        // The chosen picture, video or page: shown now, or a click away.
+        $('media-choice').hidden = !state.media;
+        if (state.media) {
+          $('media-current').textContent = fill(state.media.showing ? ui.showingNow : ui.showing, { name: state.media.name });
+          $('show-media').hidden = state.media.showing;
+        }
+      }
+
+      function renderSkins() {
+        const skins = state.skins;
+        $('skins').hidden = !skins;
+        if (!skins) return;
+        const colon = state.language === 'en' ? ': ' : '：';
+        $('skins-title').textContent = `${state.ui.skinsTitle}${colon}${state.ui.skinRoles[skins.role]}`;
+        $('skin-list').replaceChildren(...skins.files.map(({ file, url }) => {
+          const box = document.createElement('div');
+          box.className = 'picture';
+          const picture = document.createElement('img');
+          picture.src = url;
+          picture.alt = file;
+          const remove = document.createElement('button');
+          remove.type = 'button';
+          remove.textContent = '×';
+          remove.title = state.ui.skinRemove;
+          remove.setAttribute('aria-label', `${state.ui.skinRemove} ${file}`);
+          remove.addEventListener('click', async () => { state = await api.removeSkin(file); render(); });
+          box.append(picture, remove);
+          return box;
+        }));
+        $('skin-reset').hidden = skins.files.length === 0;
+      }
+
+      $('reset').addEventListener('click', async () => { state = await api.resetTweaks(); render(); });
+      $('skin-add').addEventListener('click', async () => { state = await api.addSkins(); render(); });
+      $('skin-reset').addEventListener('click', async () => { state = await api.resetSkins(); render(); });
+      $('show-media').addEventListener('click', async () => { state = await api.showMedia(); render(); });
+      for (const button of document.querySelectorAll('[data-pick]')) {
+        button.addEventListener('click', async () => { state = await api.pick(button.dataset.pick); render(); });
+      }
+      $('page-form').addEventListener('submit', async (event) => {
+        event.preventDefault();
+        const result = await api.showPage($('page-url').value);
+        $('page-error').hidden = !result.error;
+        $('page-error').textContent = result.error || '';
+        if (!result.error) { state = result; render(); }
+      });
+
+      api.onChange(async () => { state = await api.state(); render(); });
+      api.state().then((first) => { state = first; render(); });
+    </script>
+  </body>
+</html>

@@ -1,0 +1,27 @@
+# Compiles the Mac wallpaper agent whenever it changes, with the same command as
+# wallpaper/install.sh, so a change that would not build is caught before anyone installs
+# it. Keep the swiftc line here in step with the one in install.sh.
+name: Mac build
+
+on:
+  push:
+    paths: ['wallpaper/**', '.github/workflows/mac-build.yml']
+  pull_request:
+    paths: ['wallpaper/**', '.github/workflows/mac-build.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Compile, as wallpaper/install.sh does
+        run: |
+          swiftc -O -target "$(uname -m)-apple-macos13.0" -o Deskworlds \
+            wallpaper/Wallpaper.swift -framework Cocoa -framework WebKit -framework IOKit \
+            -framework ApplicationServices
+          file Deskworlds

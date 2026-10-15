@@ -94,9 +94,10 @@ Remove-Item (Join-Path $app 'resources\default_app.asar') -Force -ErrorAction Si
 
 $resources = Join-Path $app 'resources\app'
 New-Item -ItemType Directory -Path $resources -Force | Out-Null
-foreach ($file in 'main.js', 'desktop.js', 'preload.js', 'package.json', 'icon.ico', 'icon.png') {
+foreach ($file in 'main.js', 'desktop.js', 'preload.js', 'settings-preload.js', 'package.json', 'icon.ico', 'icon.png') {
   Copy-Item -Path (Join-Path $here $file) -Destination $resources
 }
+Copy-Item -Path (Join-Path $here 'host') -Destination $resources -Recurse
 # koffi, and the prebuilt binary npm picked for this machine beside it.
 $modules = Join-Path $resources 'node_modules'
 New-Item -ItemType Directory -Path $modules -Force | Out-Null

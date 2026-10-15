@@ -4,6 +4,7 @@ import {
   GLASS_VERT, GLASS_FRAG, POST_VERT, DOWN_FRAG, UP_FRAG, OUTPUT_FRAG,
 } from './shaders.js';
 import { GLOBE, ELECTRODE, SEGMENT_FLOATS } from './plasma.js';
+import { createSkins } from '../../shared/skins.js';
 
 const V3 = THREE.Vector3;
 
@@ -99,7 +100,7 @@ export function createRenderer(canvas, plasma) {
     uniforms: shared, vertexShader: SOLID_VERT, fragmentShader: WIRE_FRAG,
   }), -1);
   // Blended by pixel coverage, so the ball's edge is smooth; it still hides the channels behind it.
-  add(new THREE.SphereGeometry(ELECTRODE.radius * 1.04, 64, 48), new THREE.ShaderMaterial({
+  const electrode = add(new THREE.SphereGeometry(ELECTRODE.radius * 1.04, 64, 48), new THREE.ShaderMaterial({
     uniforms: { ...shared, uRoots: { value: roots } }, vertexShader: SOLID_VERT, fragmentShader: ELECTRODE_FRAG,
     transparent: true, depthWrite: true, blending: THREE.NormalBlending,
   }), -1);
@@ -174,9 +175,17 @@ export function createRenderer(canvas, plasma) {
     shared.uFocus.value = -forward.dot(camera.position);   // the electrode is in focus
   }
 
+  // A picture of your own in place of the ball at the centre, when the host passes one
+  // (shared/skins.js). The plasma still rises from the centre, around and in front of it.
+  const skins = createSkins(scene, { count: 1, view: 'still' });
+  if (skins) electrode.visible = false;
+  const centre = new THREE.Vector3();
+  const readCore = () => ({ position: centre, direction: 0, length: ELECTRODE.radius * 3.2 });
+
   function render() {
     renderer.info.reset();
     syncUniforms();
+    skins?.update(readCore, camera, performance.now() / 1000);
     // Mirror image for the glossy table: the same scene about the table plane, half size.
     mirrorCamera.projectionMatrix.copy(camera.projectionMatrix);
     mirrorCamera.projectionMatrixInverse.copy(camera.projectionMatrixInverse);

@@ -9,7 +9,14 @@ import {
   STANDARD_LENGTH,
 } from "./fish-anatomy.js";
 
-export const COUNT = 24;
+// 24 fish, or that many scaled by the host's ?creatures= share (a quarter to two and a
+// half times as many), chosen in the wallpaper's settings. Everything is sized from COUNT.
+export const COUNT = Math.round(24 * creatureShare());
+
+function creatureShare() {
+  const value = Number(new URLSearchParams(globalThis.location?.search ?? '').get('creatures'));
+  return Number.isFinite(value) && value > 0 ? Math.min(2.5, Math.max(0.25, value)) : 1;
+}
 // The whole water column the fish may use. The floor is the sand, tracked separately.
 export const BOUNDS = {
   minX: -8.3,
@@ -1665,6 +1672,8 @@ export function createFishSchool(
   return {
     update,
     fish,
+    // For a host that draws its own pictures in the fish's place (shared/skins.js).
+    meshes: [bodies, membranes],
     getTelemetry() {
       const states = { hover: 0, travel: 0, settle: 0, inspect: 0, feed: 0, escape: 0 };
       let twitching = 0,

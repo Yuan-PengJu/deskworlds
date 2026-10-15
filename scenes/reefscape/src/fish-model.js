@@ -444,7 +444,7 @@ export function createFishSchool(scene,simulation){
     groups.push({fish,data,attribute,gait,gaitAttribute,mesh,trim:fish.map((f,i)=>[kind==='clown'?f.size/largest:(i*.6180339887+.31)%1,(kind==='anthias'||kind==='chromis')&&f.rank===0?1:0])});
   }
   const dummy=new THREE.Object3D(),euler=new THREE.Euler(0,0,0,'YZX');
-  return {update(){
+  return {meshes:groups.map(group=>group.mesh),update(){
     for(const group of groups){
       for(let i=0;i<group.fish.length;i++){
         const f=group.fish[i];dummy.position.copy(f.position);dummy.scale.setScalar(f.size);euler.set(f.roll,f.yaw,f.pitch);dummy.quaternion.setFromEuler(euler);dummy.updateMatrix();group.mesh.setMatrixAt(i,dummy.matrix);

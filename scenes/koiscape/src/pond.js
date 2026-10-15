@@ -79,8 +79,11 @@ const BODY = Array.from({ length: SPINE_JOINTS }, (_, i) => {
 const MASS = BODY.reduce((sum, j) => sum + j.mass, 0);
 const MASS_AT = BODY.reduce((sum, j) => sum + j.mass * j.s, 0) / MASS;
 
-export function fishCount(aspect) {
-  return clamp(Math.round(3.2 + aspect * 2.4), 5, CAST.length);
+// The pond's own count for the screen's shape, scaled by `share` when the wallpaper's
+// settings ask for more or fewer koi. There are only as many koi as patterns in CAST.
+export function fishCount(aspect, share = 1) {
+  const count = clamp(Math.round(3.2 + aspect * 2.4), 5, CAST.length);
+  return share === 1 ? count : clamp(Math.round(count * share), 2, CAST.length);
 }
 
 // Lily pads sit in clusters toward the corners and edges, clear of the middle of the frame and

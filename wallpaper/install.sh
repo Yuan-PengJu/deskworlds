@@ -19,7 +19,8 @@ build=$(mktemp -d)
 trap 'rm -rf "$build"' EXIT
 # Built for this machine's own architecture; the binary never leaves it.
 swiftc -O -target "$(uname -m)-apple-macos13.0" -o "$build/Deskworlds" \
-	"$here/Wallpaper.swift" -framework Cocoa -framework WebKit -framework IOKit
+	"$here/Wallpaper.swift" -framework Cocoa -framework WebKit -framework IOKit \
+	-framework ApplicationServices
 
 # Replace installations made under the project's earlier names.
 launchctl bootout "$domain/com.chaselean.aquatica" 2>/dev/null || true
